@@ -6,6 +6,17 @@ import keras
 from keras import backend as K
 import numpy as np
 
+
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
+
+config = ConfigProto()
+config.gpu_options.allow_growth = True #按需分配显存
+session = InteractiveSession(config=config)
+# #分配百分之七十的显存
+# config.gpu_options.per_process_gpu_memory_fraction=0.7
+
+
 NCLASSES = 2
 HEIGHT = 416
 WIDTH = 416
@@ -108,7 +119,7 @@ if __name__ == "__main__":
     model.compile(loss=loss,
                   optimizer=Adam(lr=1e-4),
                   metrics=['accuracy'])
-    batch_size = 4
+    batch_size = 2
     print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
 
     # 开始训练
@@ -116,15 +127,16 @@ if __name__ == "__main__":
                         steps_per_epoch=max(1, num_train // batch_size),
                         validation_data=generate_arrays_from_file(lines[num_train:], batch_size),
                         validation_steps=max(1, num_val // batch_size),
-                        epochs=50,
+                        epochs=6,
                         initial_epoch=0,
                         callbacks=[checkpoint_period, reduce_lr])
 
     model.save_weights(log_dir + 'last1.h5')
 
 
-
-
+#释放内存
+import os, signal
+os.kill(os.getpid(), signal.SIGKILL)
 
 
 

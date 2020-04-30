@@ -1,4 +1,4 @@
-from unet import mobilenet_unet
+from segnet1 import resnet50_segnet
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from PIL import Image
@@ -6,14 +6,20 @@ import keras
 from keras import backend as K
 import numpy as np
 
-from tensorflow.compat.v1 import ConfigProto
-from tensorflow.compat.v1 import InteractiveSession
 
-config = ConfigProto()
-config.gpu_options.allow_growth = True #按需分配显存
-session = InteractiveSession(config=config)
-#分配百分之七十的显存
-config.gpu_options.per_process_gpu_memory_fraction=0.7
+##分配GPU内存,防止爆掉
+# from tensorflow.compat.v1 import ConfigProto
+# from tensorflow.compat.v1 import InteractiveSession
+#
+# config = ConfigProto()
+# config.gpu_options.allow_growth = True #按需分配显存
+# session = InteractiveSession(config=config)
+
+#使用cpu版的tensorflow
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+import tensorflow as tf
+
 
 NCLASSES = 2
 HEIGHT = 416
@@ -64,16 +70,11 @@ def loss(y_true, y_pred):
 if __name__ == "__main__":
     log_dir = "logs/"
     # 获取model
-    model = mobilenet_unet(n_classes=NCLASSES, input_height=HEIGHT, input_width=WIDTH)
-    # model.summary()
-    BASE_WEIGHT_PATH = ('https://github.com/fchollet/deep-learning-models/'
-                        'releases/download/v0.6/')
-    model_name = 'mobilenet_%s_%d_tf_no_top.h5' % ('1_0', 224)
+    model = resnet50_segnet(n_classes=NCLASSES, input_height=HEIGHT, input_width=WIDTH)
 
-    weight_path = BASE_WEIGHT_PATH + model_name
-    weights_path = keras.utils.get_file(model_name, weight_path)
-    print(weight_path)
-    model.load_weights(weights_path, by_name=True, skip_mismatch=True)
+    pretrained_url = "https://github.com/fchollet/deep-learning-models/releases/download/v0.2/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5"
+    weights_path = keras.utils.get_file(pretrained_url.split("/")[-1], pretrained_url)
+    model.load_weights(weights_path, by_name=True)
 
     # model.summary()
     # 打开数据集的txt
@@ -90,17 +91,17 @@ if __name__ == "__main__":
     num_val = int(len(lines) * 0.1)
     num_train = len(lines) - num_val
 
-    # 保存的方式，1世代保存一次
+    # 保存的方式，3世代保存一次
     checkpoint_period = ModelCheckpoint(
-        log_dir + 'weight1.h5',
-        monitor='val_loss',
+        log_dir + 'weight2.h5',
+        monitor='acc',
         save_weights_only=True,
         save_best_only=True,
         period=1
     )
-    # 学习率下降的方式，val_loss三次不下降就下降学习率继续训练
+    # 学习率下降的方式，acc三次不下降就下降学习率继续训练
     reduce_lr = ReduceLROnPlateau(
-        monitor='val_loss',
+        monitor='acc',
         factor=0.5,
         patience=3,
         verbose=1
@@ -112,6 +113,10 @@ if __name__ == "__main__":
         patience=10,
         verbose=1
     )
+    trainable_layer = 142
+    for i in range(trainable_layer):
+        model.layers[i].trainable = False
+    print('freeze the first {} layers of total {} layers.'.format(trainable_layer, len(model.layers)))
 
     # 交叉熵
     model.compile(loss=loss,
@@ -125,165 +130,23 @@ if __name__ == "__main__":
                         steps_per_epoch=max(1, num_train // batch_size),
                         validation_data=generate_arrays_from_file(lines[num_train:], batch_size),
                         validation_steps=max(1, num_val // batch_size),
-                        epochs=20,
+                        epochs=9,
                         initial_epoch=0,
                         callbacks=[checkpoint_period, reduce_lr])
-
-    model.save_weights(log_dir + 'last11.h5')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    model.save_weights(log_dir + 'middle1.h5')
+    for i in range(len(model.layers)):
+        model.layers[i].trainable = True
+    # 交叉熵
+    model.compile(loss=loss,
+                  optimizer=Adam(lr=1e-4),
+                  metrics=['accuracy'])
+    # 开始训练
+    model.fit_generator(generate_arrays_from_file(lines[:num_train], batch_size),
+                        steps_per_epoch=max(1, num_train // batch_size),
+                        validation_data=generate_arrays_from_file(lines[num_train:], batch_size),
+                        validation_steps=max(1, num_val // batch_size),
+                        epochs=9,
+                        initial_epoch=10,
+                        callbacks=[checkpoint_period, reduce_lr])
+
+    model.save_weights(log_dir + 'last12.h5')

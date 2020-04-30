@@ -1,4 +1,5 @@
-from unet import mobilenet_unet
+from deeplab import Deeplabv3
+from keras.utils.data_utils import get_file
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from PIL import Image
@@ -13,7 +14,10 @@ config = ConfigProto()
 config.gpu_options.allow_growth = True #按需分配显存
 session = InteractiveSession(config=config)
 #分配百分之七十的显存
-config.gpu_options.per_process_gpu_memory_fraction=0.7
+config.gpu_options.per_process_gpu_memory_fraction=0.6
+
+ALPHA = 1.0
+WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_xception_tf_dim_ordering_tf_kernels.h5"
 
 NCLASSES = 2
 HEIGHT = 416
@@ -42,9 +46,9 @@ def generate_arrays_from_file(lines, batch_size):
             name = (lines[i].split(';')[1]).replace("\n", "")
             # 从文件中读取图像
             img = Image.open(r".\dataset2\png" + '/' + name)
-            img = img.resize((int(WIDTH / 2), int(HEIGHT / 2)))
+            img = img.resize((int(WIDTH), int(HEIGHT)))
             img = np.array(img)
-            seg_labels = np.zeros((int(HEIGHT / 2), int(WIDTH / 2), NCLASSES))
+            seg_labels = np.zeros((int(HEIGHT), int(WIDTH), NCLASSES))
             for c in range(NCLASSES):
                 seg_labels[:, :, c] = (img[:, :, 0] == c).astype(int)
             seg_labels = np.reshape(seg_labels, (-1, NCLASSES))
@@ -57,25 +61,21 @@ def generate_arrays_from_file(lines, batch_size):
 
 def loss(y_true, y_pred):
     crossloss = K.binary_crossentropy(y_true, y_pred)
-    loss = 4 * K.sum(crossloss) / HEIGHT / WIDTH
+    loss = K.sum(crossloss) / HEIGHT / WIDTH
     return loss
 
 
 if __name__ == "__main__":
     log_dir = "logs/"
     # 获取model
-    model = mobilenet_unet(n_classes=NCLASSES, input_height=HEIGHT, input_width=WIDTH)
+    model = Deeplabv3(classes=2, input_shape=(HEIGHT, WIDTH, 3))
     # model.summary()
-    BASE_WEIGHT_PATH = ('https://github.com/fchollet/deep-learning-models/'
-                        'releases/download/v0.6/')
-    model_name = 'mobilenet_%s_%d_tf_no_top.h5' % ('1_0', 224)
 
-    weight_path = BASE_WEIGHT_PATH + model_name
-    weights_path = keras.utils.get_file(model_name, weight_path)
-    print(weight_path)
-    model.load_weights(weights_path, by_name=True, skip_mismatch=True)
+    weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels.h5',
+                            WEIGHTS_PATH_X,
+                            cache_subdir='models')
+    model.load_weights(weights_path, by_name=True)
 
-    # model.summary()
     # 打开数据集的txt
     with open(r".\dataset2\train.txt", "r") as f:
         lines = f.readlines()
@@ -92,13 +92,13 @@ if __name__ == "__main__":
 
     # 保存的方式，1世代保存一次
     checkpoint_period = ModelCheckpoint(
-        log_dir + 'weight1.h5',
+        log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
         monitor='val_loss',
         save_weights_only=True,
         save_best_only=True,
         period=1
     )
-    # 学习率下降的方式，val_loss三次不下降就下降学习率继续训练
+    # 学习率下降的方式，val_loss 1次不下降就下降学习率继续训练
     reduce_lr = ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
@@ -117,7 +117,8 @@ if __name__ == "__main__":
     model.compile(loss=loss,
                   optimizer=Adam(lr=1e-3),
                   metrics=['accuracy'])
-    batch_size = 2
+
+    batch_size = 1
     print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
 
     # 开始训练
@@ -125,165 +126,8 @@ if __name__ == "__main__":
                         steps_per_epoch=max(1, num_train // batch_size),
                         validation_data=generate_arrays_from_file(lines[num_train:], batch_size),
                         validation_steps=max(1, num_val // batch_size),
-                        epochs=20,
+                        epochs=15,
                         initial_epoch=0,
                         callbacks=[checkpoint_period, reduce_lr])
 
-    model.save_weights(log_dir + 'last11.h5')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    model.save_weights(log_dir + 'last1.h5')
